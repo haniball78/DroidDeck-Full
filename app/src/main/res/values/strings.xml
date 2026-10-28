@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="gog_maintenance">Manage GOG installation</string>
+    <string name="gog_apply">Continue</string>
+    <string name="gog_check">Check for updates</string>
+    <string name="gog_repair">Verify/Repair</string>
+    <string name="gog_patches">Offline patches</string>
+    <string name="gog_refresh">Download full offline installer</string>
+    <string name="gog_update">Update to %1$s</string>
+    <string name="gog_resume">Resume GOG maintenance</string>
+    <string name="gog_open_patch">Open patch installer</string>
+    <string name="gog_patch_in_session">Finish or cancel the patch installer in the Linux session.</string>
+    <string name="gog_patch_requirements">Patch source-version requirements may be unknown. Choose a patch for your installed version and language. The installer opens in the game’s existing Proton environment.</string>
+    <string name="gog_no_patches">GOG has no standalone Windows patches for this game.</string>
+    <string name="gog_download_space">Download: %1$s · Free space needed: %2$s</string>
+    <string name="gog_managed_files">This operation may replace managed game files, including modifications to those files. Your existing game settings and prefix are retained.</string>
     <string name="glasses_experimental">Luma Ultra cameras — Experimental</string>
     <string name="glasses_joycons">Joy-Con position tracking</string>
     <string name="glasses_joycons_hint">Use the glasses cameras to position your paired Joy-Cons. Rotation and button inputs come from the Joy-Cons. Position is estimated when your wrists are hidden. Replaces bare-hand controllers and pauses phone-camera tracking. Point the Joy-Cons forward when connecting or recentering.</string>
@@ -3320,4 +3334,5 @@
     <string name="integration_shortcuts_service">DroidDeck Home button</string>
     <string name="integration_shortcuts_service_description">Pass Home button presses to Steam Guide while a Steam session is focused and DroidDeck is the default Home app. Does not read screen content.</string>
     <string name="integration_brightness_needed">Turn on Brightness in Setup → Steam integration</string>
+    <string name="gog_full_files">Native optimizations are unavailable. The download includes complete replacement files.</string>
 </resources>
