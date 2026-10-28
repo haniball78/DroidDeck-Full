@@ -79,6 +79,13 @@ internal fun GogMaintenanceActions(game: InstalledStoreGame) {
                 }
             }
             MenuItem(stringResource(R.string.gog_refresh), checked = false) { prepare(GogOperation.REFRESH) }
+            if (GogFiles.journal(game.folder).exists()) MenuItem(stringResource(R.string.gog_recover), checked = false, modifier = Modifier.testTag("gog-recover")) {
+                menu = false; busy = true
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { GogMaintenance.recoverPatch(ctx, game) } }.onFailure { error = it.message }
+                    busy = false
+                }
+            }
         }
     }
     if (check?.state == GogMaintenance.State.FAILED || check?.state == GogMaintenance.State.UNKNOWN) {

@@ -66,6 +66,34 @@ class GogMaintenance(unittest.TestCase):
             (row / "cmdline").write_bytes(name.encode() + b"\0")
         self.assertEqual([10], G["active"]("/prefix", proc))
 
+    def test_desktop_installer_inherits_the_nested_display_not_the_bridge_display(self):
+        proc = self.folder / "proc"
+        row = proc / "10"; row.mkdir(parents=True)
+        (row / "cmdline").write_bytes(b"/usr/bin/plasmashell\0")
+        (row / "environ").write_bytes(b"BL_DESKTOP=1\0XDG_RUNTIME_DIR=/run/session\0WAYLAND_DISPLAY=wayland-1\0DISPLAY=:0\0XAUTHORITY=/run/session/auth\0UNRELATED=value\0")
+        env = G["desktop_environment"]({"DROIDDECK_GOG_DESKTOP": "1", "XDG_RUNTIME_DIR": "/run/session", "WAYLAND_DISPLAY": "wayland-0"}, proc)
+        self.assertEqual("wayland-1", env["WAYLAND_DISPLAY"])
+        self.assertEqual(":0", env["DISPLAY"])
+        self.assertEqual("/run/session/auth", env["XAUTHORITY"])
+        self.assertEqual("1", env["BL_DESKTOP"])
+        self.assertNotIn("UNRELATED", env)
+
+    def test_legacy_setup_uses_authentic_timestamp_and_support_layout(self):
+        program = self.folder / "support/1/setup.exe"
+        program.parent.mkdir(parents=True); program.write_bytes(b"MZtest")
+        record = {"id": "1", "build": "3301", "products": ["1"], "language": "en-US", "manifest": {"product": {
+            "timestamp": 31847977, "support_commands": [{"gameID": "1", "executable": "/setup.exe", "languages": ["English"]}]}}}
+        G["write"](self.control / "installed.json", {"verified": False})
+        G["write"](self.control / "operation.json", {"before": record})
+        G["write"](self.folder / "goggame-1.info", {"language": "English"})
+        with mock.patch.object(G["subprocess"], "run", return_value=mock.Mock(returncode=0)) as run:
+            G["prepare_setup"](str(self.folder), "/proton", {})
+        args = run.call_args.args[0]
+        self.assertEqual(str(program), args[2])
+        self.assertIn("/buildId=31847977", args)
+        self.assertNotIn("/buildId=3301", args)
+        self.assertIn("/Language=English", args)
+
     def test_interrupted_patch_is_not_started_again(self):
         (self.control / "operation.json").write_text(json.dumps({"phase": "patch-applying"}))
         with mock.patch.dict(G, {"validate_installer": lambda *a: self.folder / "patch.exe"}):

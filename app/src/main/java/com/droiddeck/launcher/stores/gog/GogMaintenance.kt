@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateMapOf
 import com.droiddeck.launcher.agent.AgentGuest
 import com.droiddeck.launcher.frontend.AddedGames
+import com.droiddeck.launcher.runtime.GuestCommand
+import com.droiddeck.launcher.session.SessionPrefs
 import com.droiddeck.launcher.session.SessionState
 import com.droiddeck.launcher.stores.*
 import com.droiddeck.launcher.stores.download.*
@@ -143,6 +145,38 @@ internal object GogMaintenance {
         return prepare(context, game, operation, patch, resume = true)
     }
 
+    fun recoverPatch(context: Context, game: InstalledStoreGame) {
+        val folder = game.folder.canonicalFile
+        check(!DownloadQueue.isActive(game.key)) { "Wait for the GOG operation to finish" }
+        val journal = GogFiles.read(GogFiles.journal(folder)) ?: error("GOG patch journal is missing")
+        require(journal.optString("folder") == folder.path && journal.optString("operation") == GogOperation.PATCH.name)
+        require(journal.optString("phase") in setOf("patch-starting", "patch-applying", "patch-uncertain"))
+        RandomAccessFile(GogFiles.inside(folder, ".droiddeck-gog/lease"), "rw").use { lease ->
+            val lock = runCatching { lease.channel.tryLock() }.getOrNull() ?: error("Close the patch installer before verifying its result")
+            lock.use {
+                ensureIdle(context, folder)
+                val before = GogInstallRecord.parse(journal.getJSONObject("before"))
+                val info = GogFiles.read(File(folder, "goggame-${before.id}.info"))
+                val buildId = info?.optString("buildId").orEmpty().ifBlank { before.build }
+                check(buildId.isNotBlank()) { "The resulting build is unknown. Use a full offline refresh." }
+                val token = GogContent.token(context)
+                val build = GogBuild.select(GogContent.builds(before.id, token), pinned = buildId)
+                    ?: error("The resulting build manifest is unavailable. Use a full offline refresh.")
+                val target = GogContent.snapshot(before, build, token)
+                GogFiles.validate(target.files, folder)
+                check(target.files.objects().all { it.optBoolean("directory") || GogFiles.matches(folder, it) }) {
+                    "The files do not match the reported build. Use a full offline refresh to recover."
+                }
+                val sidecar = StoreGameSidecar.parse(journal.getJSONObject("sidecar").toString()) ?: error("The original GOG settings are missing")
+                target.write(folder)
+                StoreInstalls.complete(context, folder, sidecar.copy(installVersion = target.build, state = StoreGameSidecar.STATE_INSTALLED))
+                check(GogFiles.journal(folder).delete()) { "Could not finish the GOG recovery record" }
+            }
+        }
+        checkedAt.remove(folder.path)
+        StoresState.post { checks.remove(game.sidecar.id) }
+    }
+
     fun enqueue(context: Context, game: InstalledStoreGame, proposal: Proposal) {
         val app = context.applicationContext
         require(game.folder.canonicalFile == proposal.folder)
@@ -249,6 +283,13 @@ internal object GogMaintenance {
         if (SessionState.running) {
             val id = (game.steamAppId?.toLong() ?: game.appId) and 0xffffffffL
             val guest = AddedGames.guestPath(context, folder) ?: error("The GOG folder is unavailable to Linux")
+            if (SessionState.suspended) {
+                val root = AddedGames.guestPath(context, SessionPrefs.activeSteamRoot(context)) ?: error("The Steam folder is unavailable to Linux")
+                val rc = GuestCommand.run(context, listOf("/usr/bin/env", "STEAM_COMPAT_CLIENT_INSTALL_PATH=$root", HELPER, "idle", guest, id.toString(), game.guestExe),
+                    extraBinds = StoreInstallRoot.externalBindSpecs(context), logName = "gog-idle", onLine = StoresState::logLine)
+                check(rc == 0) { "Close the GOG game before maintenance" }
+                return
+            }
             val request = JSONObject().put("kind", "exec").put("argv", JSONArray(listOf(HELPER, "idle", guest, id.toString(), game.guestExe))).put("timeout", 15)
             val result = AgentGuest.call(context, request, 20_000, trusted = true)
             check(result.optBoolean("ok") && result.optInt("exitCode", -1) == 0) { "Close the GOG game before maintenance" }

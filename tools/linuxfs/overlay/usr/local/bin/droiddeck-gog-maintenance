@@ -71,17 +71,52 @@ def lease(folder, owner):
     return 0
 
 
-def runner(folder, appid, game):
+def desktop_environment(base, proc=Path("/proc")):
+    env = dict(base)
+    if env.get("DROIDDECK_GOG_DESKTOP") != "1":
+        return env
+    deadline = time.monotonic() + 45
+    while True:
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                command = (entry / "cmdline").read_bytes().split(b"\0")[0]
+                if command != b"/usr/bin/plasmashell":
+                    continue
+                values = dict(os.fsdecode(item).split("=", 1) for item in (entry / "environ").read_bytes().split(b"\0") if b"=" in item)
+                if values.get("BL_DESKTOP") != "1" or values.get("XDG_RUNTIME_DIR") != env.get("XDG_RUNTIME_DIR"):
+                    continue
+                if not values.get("DISPLAY") or values.get("WAYLAND_DISPLAY") == env.get("WAYLAND_DISPLAY"):
+                    continue
+                for key in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "BL_DESKTOP"):
+                    if key in values:
+                        env[key] = values[key]
+                return env
+            except (OSError, ValueError):
+                continue
+        if time.monotonic() >= deadline:
+            raise ValueError("The desktop display is not ready; resume the Linux session and verify recovery before retrying")
+        time.sleep(0.25)
+
+
+def target_for(folder, appid, game):
     run = runpy.run_path(str(BIN / "droiddeck-proton-run"))["main"].__globals__
     root = os.environ.get("STEAM_COMPAT_CLIENT_INSTALL_PATH") or run["STEAM_ROOT"]
     target = run["shortcut_target"](str(int(appid) & 0xffffffff), str(game), str(folder), root)
     target.install = str(folder)
+    return run, root, target
+
+
+def runner(folder, appid, game, graphical=False):
+    run, root, target = target_for(folder, appid, game)
     available = run["tools"](root)
     name, _ = run["choose_tool"](target.appid, run["mapping"](root), available)
     if name is None:
         raise ValueError("No Proton tool is installed for this game")
     tool, command = available[name]
-    env = run["environment"](os.environ, target, tool, root, window=os.environ.get("BL_DESKTOP") == "1")
+    base = desktop_environment(os.environ) if graphical else dict(os.environ)
+    env = run["environment"](base, target, tool, root, window=base.get("BL_DESKTOP") == "1")
     env["DROIDDECK_GOG_MAINTENANCE"] = "1"
     env.pop("BL_STORE_EXIT", None)
     return str(Path(tool) / command), env, target.compatdata
@@ -107,8 +142,8 @@ def active(prefix, proc=Path("/proc")):
 
 
 def idle(folder, appid, game):
-    _, _, prefix = runner(folder, appid, game)
-    if active(prefix):
+    _, _, target = target_for(folder, appid, game)
+    if active(target.compatdata):
         raise ValueError("Close the GOG game before maintenance")
     return 0
 
@@ -148,7 +183,7 @@ def run_patch(folder, appid, installer, game):
         with lock_file(root) as stream:
             fcntl.lockf(stream, fcntl.LOCK_EX)
             path = validate_installer(folder, installer)
-            command, env, prefix = runner(folder, appid, game)
+            command, env, prefix = runner(folder, appid, game, True)
             if active(prefix):
                 raise ValueError("Close the GOG game before applying the patch")
             journal = read(root / "operation.json")
@@ -205,11 +240,13 @@ def prepare_setup(folder, command, env):
     manifest = record.get("manifest", {})
     if not record.get("build"):
         return
+    info_path = Path(folder) / ("goggame-%s.info" % record["id"])
+    language = read(info_path).get("language", "") if info_path.is_file() else ""
     legacy = manifest.get("product", {})
     products = manifest.get("products", []) if not legacy else [
         {"productId": str(item["gameID"]), "temp_executable": item["executable"].lstrip("/\\")}
         for item in legacy.get("support_commands", [])
-        if "Neutral" in item.get("languages", []) or record.get("language") in item.get("languages", [])]
+        if "Neutral" in item.get("languages", []) or record.get("language") in item.get("languages", []) or language in item.get("languages", [])]
     for product in products:
         if str(product.get("productId")) not in record.get("products", []):
             continue
@@ -230,6 +267,8 @@ def prepare_setup(folder, command, env):
         args = ["/VERYSILENT", "/DIR=" + windows, "/ProductId=" + str(product["productId"]),
                 "/galaxyclient", "/buildId=" + str(legacy.get("timestamp", record["build"])), "/versionName=" + record.get("version", ""),
                 "/lang-code=" + record.get("language", "en-US"), "/supportDir=" + windows + "\\support", "/nodesktopshortcut"]
+        if language:
+            args += ["/Language=" + language, "/LANG=" + language.lower()]
         result = subprocess.run([command, "run", str(program), *args], env=env, cwd=folder, timeout=120)
         if result.returncode:
             raise ValueError("GOG installation setup failed; the patch was not applied")

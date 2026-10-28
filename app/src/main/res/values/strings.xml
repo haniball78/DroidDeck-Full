@@ -3335,4 +3335,5 @@
     <string name="integration_shortcuts_service_description">Pass Home button presses to Steam Guide while a Steam session is focused and DroidDeck is the default Home app. Does not read screen content.</string>
     <string name="integration_brightness_needed">Turn on Brightness in Setup → Steam integration</string>
     <string name="gog_full_files">Native optimizations are unavailable. The download includes complete replacement files.</string>
+    <string name="gog_recover">Verify patch result</string>
 </resources>

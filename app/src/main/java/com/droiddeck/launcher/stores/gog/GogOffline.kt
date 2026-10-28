@@ -112,6 +112,7 @@ internal object GogOffline {
         File(GogFiles.dir(proposal.folder), "patch-status.json").delete()
         GogFiles.write(GogFiles.journal(proposal.folder), journal)
         val request = JSONObject().put("kind", "exec").put("timeout", 15)
+            .put("env", JSONObject().put("DROIDDECK_GOG_DESKTOP", if (SessionState.mode == SessionService.MODE_DESKTOP) "1" else "0"))
             .put("argv", JSONArray(listOf(HELPER, "start", folder, id.toString(), executable, added.guestExe)))
         if (stop.get()) return false
         onApplying()
