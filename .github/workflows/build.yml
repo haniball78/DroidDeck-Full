@@ -25,6 +25,10 @@ on:
         description: Rebuild preloads instead of reusing the approved binary snapshot
         type: boolean
         default: false
+      sign:
+        description: Sign the APK with the release key when not building main
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -702,7 +706,7 @@ jobs:
 
   sign:
     needs: [build, checks]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || inputs.sign)
     permissions:
       contents: read
       actions: read
